@@ -1,0 +1,92 @@
+---
+title: "UMass Basketball Message"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+
+The UMass Hoops Message board represents the collective inner psyche of the UMass sports fan. It is where the most dedicated, loyal, tormented fans of the UMass Basketball program go to express frustrations, comiserate, stoke each other's unrealistic expectations, lather themselves into a frenzy, and very occasionally celebrate. I thought it might be interesting to better understand how and when people have used the platform since it began, through a few ups and many downs.
+
+Shall we take a look?
+
+```{r}
+## load in the packages needed
+require(tidyr)
+require(dplyr)
+require(ggplot2)
+require(lubridate)
+require(plotly)
+
+##Set the data directory
+data.dir <- paste0(getwd(), "/Hoop Board Data/")
+
+## load in the message board posts now that they have been scraped  
+posts.df <- read.csv(paste0(data.dir, "Hoops Board Posts.csv"), stringsAsFactors = FALSE)
+
+## convert the DateTime variable to an actual date time
+posts.df$PostDateTime <- as.POSIXct(posts.df$DateTime)
+head(posts.df[, c("DateTime", "PostDateTime")])
+
+## get right of the character version
+posts.df$DateTime <- NULL
+```
+
+Taking a look at when this all began we can see that it started as a trickle in 2003 and gained steam through our our NCAA tournament appearance in the 2013-2014 season. No surprise, but activity is largely condensed to the months of the year when the season is active, from November through March. After the exciting season where Derek Kellogg's Minutemen got off to a hot start and did just enough to tailspin their way to an NCAA tournament first round spanking at the hands of Tennessee, monthly volume fell back to 2010 levels, peaking at < 3k posts per month in the 2014-15 season.
+
+```{r}
+
+## Plot the number of posts per month
+p.volume <- plot_ly(posts.df, x = ~format(as.Date(PostDateTime), "%Y-%m")) %>%
+  add_histogram() %>%
+  layout(title = "UMass Hoops Message Board Posts per Month", yaxis = list(title="", tickformat=",d", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
+p.volume
+
+```
+
+Monthly post volumes are a decent way to gauge interest in the program from year to year, but looking at the number of unique individuals that are participating also helps us understand the spread of interest each year. While we still see that the 2013-14 season has the largest number of users, it's not wildly higher than some of the first years of the message board. During that high water mark, we see there there are >250 unique users that are making posts in a given month. But we see unique monhtly posters north of 200 in a number of other seasons: 2004-05, 2007-08, 2011-12, and 2012-13. In other words, in the "up" years of the program we are seeing more engaged users, but it seems as though much of the difference in total post volume we saw previously is driven by an increase in posts per user rather than just a jump in net new users.   
+
+```{r}
+
+## How many unique posters do we see over time?
+unique.posters <-  posts.df %>%
+  mutate(YrMon = format(as.Date(PostDateTime), "%Y-%m")) %>%
+  group_by(YrMon) %>%
+  summarize(UniquePosters = n_distinct(poster))
+
+head(unique.posters)
+
+p.uniqueposters <- plot_ly(unique.posters, x = ~YrMon, y = ~UniquePosters, type = "bar") %>%
+  layout(title = "Unique Posters Per Month", yaxis = list(title="", tickformat=",d", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
+p.uniqueposters
+
+```
+
+```{r}
+
+## How many posts per active user do we see over time?
+posts.per.poster <-  posts.df %>%
+  mutate(YrMon = format(as.Date(PostDateTime), "%Y-%m")) %>%
+  group_by(YrMon, poster) %>%
+  summarize(PostVolume = n()) %>%
+  group_by(YrMon) %>%
+  summarize(AvgPPU = mean(PostVolume))
+
+head(posts.per.poster)
+
+p.AvgPostsPerUser <- plot_ly(posts.per.poster, x = ~YrMon, y = ~AvgPPU, type = "bar") %>%
+  layout(title = "Average # of Posts Made by Active Posters Each Month", yaxis = list(title="", tickformat=",d", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
+p.AvgPostsPerUser
+
+```
+
