@@ -27,6 +27,8 @@ require(dplyr)
 require(ggplot2)
 require(lubridate)
 require(plotly)
+require(igraph)
+require(networkD3)
 
 ##Set the data directory
 data.dir <- paste0(getwd(), "/Hoop Board Data/")
@@ -71,7 +73,6 @@ p.uniqueposters <- plot_ly(unique.posters, x = ~YrMon, y = ~UniquePosters, type 
 p.uniqueposters
 
 ```
-
 ```{r}
 
 ## How many posts per active user do we see over time?
@@ -84,9 +85,124 @@ posts.per.poster <-  posts.df %>%
 
 head(posts.per.poster)
 
-p.AvgPostsPerUser <- plot_ly(posts.per.poster, x = ~YrMon, y = ~AvgPPU, type = "bar") %>%
-  layout(title = "Average # of Posts Made by Active Posters Each Month", yaxis = list(title="", tickformat=",d", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
+p.AvgPostsPerUser <- plot_ly(posts.per.poster, x = ~YrMon, y = ~round(AvgPPU, 1), type = "bar") %>%
+  layout(title = "Average # of Posts Made by Active Posters Each Month", yaxis = list(title="", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
 p.AvgPostsPerUser
 
+```
+
+
+One thing I wondered going through this was about when new people were finding the board, registering, and making their first posts versus if there were people who had signed up early on but were just returning to the board after a hiatus. It was surprising to see that the 2013-14 seasons really didn't bring a whole lot of net new users to the board, instead it seems to just be previously active users coming back to the board. Also - my knowledge of the early days of the board is limited... but I do know that at some point the backend platform was migrated from one place to another, and it seems like history may have been truncated prior to April 2004 - doesn't seem likely that there was a one-month surge of new posters right at the start... There were some other times that seem to have drawn in new users. UMass basketball / message board historians may have a better sense for what was happening, but it appears March 2005 when Travis Ford was named head coach likely caused some activity. Then, after new users started to level off, there is another flurry of new users that come in over the span of March-April in 2008, right as UMass made their run with Travis Ford to the NIT finals and he announced he was leaving for Oklahoma State.
+
+```{r}
+first.post <- posts.df %>%
+  arrange(poster, PostDateTime) %>%
+  group_by(poster) %>%
+  slice(1) %>%
+  mutate(YrMon = format(as.Date(PostDateTime), "%Y-%m")) %>%
+  group_by(YrMon) %>%
+  summarize(PostVolume = n())
+  
+p.FirstPost <- plot_ly(first.post, x = ~YrMon, y = ~PostVolume, type = "bar") %>%
+  layout(title = "First Time Posters", yaxis = list(title="", tickformat=",d", gridcolor = "#bbb"), xaxis = list(title="Year-Month"))
+p.FirstPost
+
+```
+
+For me and I assume many others, the message board is largely a spectator sport. My guess is that the true extent of the message board community isn't very well represented in the figures above because of this same behavior by others. The board's content really is dominated by a select few users. I found 1,175 unique post handles in the time span of data that I scraped, but below you can see the top percentile of these posters make up almost 30 percent of all content posted on the board - that's just 11 people! The top 3 percent of posters make up more than half of all content (53%), that's just 35 posters.
+
+```{r}
+posts.ttl <- nrow(posts.df)
+posters.ttl <- length(unique(posts.df$poster))
+prolific <- posts.df %>%
+  group_by(poster) %>%
+  summarize(post.freq = n()) %>%
+  mutate(Prcnt = post.freq/posts.ttl) %>%
+  arrange(desc(Prcnt)) %>%
+  mutate(Percentile = floor(100*(row_number()/posters.ttl))) %>%
+  group_by(Percentile) %>%
+  summarize(Post.Prcnt = sum(Prcnt)) %>%
+  mutate(CumSum.PostPrcn = cumsum(Post.Prcnt))
+
+
+p.PosterPrcntle <- plot_ly(prolific, x = ~Percentile, y = ~CumSum.PostPrcn, type = "scatter", mode="markers+lines") %>%
+  layout(title = "Portion of All Message Board Posts", yaxis = list(title="", tickformat="%", gridcolor = "#bbb"), xaxis = list(title="Poster Percentile by Post Frequency"))
+p.PosterPrcntle
+
+  
+```
+
+
+One of the commonly used tools on the board that can help us understand a bit more about back and forth dialogue on the board is the quoting functionality. Posters have the ability to quote another post in their own post - essentially highlighting it as a reference for what they are saying. I thought it might give a decent sense for which users are often communicating directly with one another. Below are the quote-quoter frequencies where there are more than 50 occurrences. Looks like there are a few specific users that like to use this functionality more than most - NilesGold, for example.
+
+```{r}
+## extract the text before the substring 'wrote:' which always proceeds the quotes in the message body
+posts.df$Quote <- ifelse(grepl("wrote:", posts.df$posts, fixed = TRUE), sub(" wrote:.*", "", posts.df$posts), "")
+
+## check to see if there are any weird values - if so strip them out
+unique.posters <- unique(posts.df$poster)
+posts.df$Quote <- ifelse(posts.df$Quote %in% unique.posters, posts.df$Quote, "")
+
+## summarize the pairings of conversations
+quote.summary <- posts.df %>%
+  filter(Quote != "") %>%
+  group_by(poster, Quote) %>%
+  summarize(freq = n()) %>%
+  arrange(desc(freq))
+
+## Who's quoting who?
+quote.summary$Label <- paste0(quote.summary$poster, " - ", quote.summary$Quote)
+
+## need to create factor for plotting
+quote.summary$Label <- factor(quote.summary$Label)
+quote.summary$Label <- reorder(quote.summary$Label, quote.summary$freq)
+
+  
+
+p.FreqQuoters <- plot_ly(quote.summary[quote.summary$freq>=50 & order(quote.summary$freq), ], x = ~freq, y = ~Label, type = "bar", orientation="h") %>%
+  layout(title = "Quote Frequency", yaxis = list(title="Quoter - Quotee", gridcolor = "#bbb"), xaxis = list(title="Frequency"))
+p.FreqQuoters
+
+```
+
+While the order matters here in terms of who is quoting who - I wanted to take a look at the relationships between posters, abstracting the direction of the quoter-quotee relatinoship. So or example, I want to know only that NilesGold and 69MG have quoted eachother a total of288 times, rather than NilesGold quoting 69MG 162x and vice versa 126x. This will help simplify the relationships between users of the board. 
+
+```{r}
+
+for (i in c(2:nrow(quote.summary))){
+  temp <- quote.summary[c(1:i-1), ]
+  if(nrow(temp[temp$Quote == quote.summary[i, ]$poster & temp$poster == quote.summary[i, ]$Quote, ]) ==1){
+    p <- quote.summary[i, ]$poster
+    q <- quote.summary[i, ]$Quote
+    quote.summary[i, ]$poster <- q
+    quote.summary[i, ]$Quote <- p
+    p <- NULL
+    q<- NULL
+    }
+  temp <- NULL
+}
+
+## now resummarize
+quote.summary2 <- quote.summary %>%
+  group_by(poster, Quote) %>%
+  summarize(Sum = sum(freq)) %>%
+  filter(Sum >= 40) %>%
+  arrange(desc(Sum))
+
+## create node / links dataframes
+usernames <- unique(c(quote.summary2$poster, quote.summary2$Quote))
+id <- c(1:length(usernames))
+MisNodes1 <- data.frame(usernames = usernames, id = id, group = 1, size = 1)
+
+quote.summary2 <- merge(x = quote.summary2, y = MisNodes1[, c("usernames", "id")], by.x = "poster", by.y = "usernames")
+names(quote.summary2) <- c("poster", "Quote", "Sum", "source")
+quote.summary2 <- merge(x = quote.summary2, y = MisNodes1[, c("usernames", "id")], by.x = "Quote", by.y = "usernames")
+names(quote.summary2) <- c("poster", "Quote", "Sum", "source", "target")
+
+quote.summary2 <- quote.summary2 %>%
+  arrange(source)
+
+forceNetwork(Links = quote.summary2, Nodes = MisNodes1, Source = "poster", Target = "Quote", 
+             zoom = TRUE, Value = "Sum", NodeID = "usernames", Group = "group")
 ```
 
