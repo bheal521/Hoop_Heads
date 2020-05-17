@@ -1,5 +1,6 @@
 require(rvest)
 
+
 ## set the homepage for UMass Hoops Message Board
 url <- "http://www.umasshoops.com/newboard/viewforum.php?f=1&sid=bea9f02fcd63bc6e63db30d0d2b9ae04"
 bball <- read_html(url)
